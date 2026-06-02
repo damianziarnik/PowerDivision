@@ -1,7 +1,4 @@
-FROM php:8.4-apache
-
-# Enable Apache mod_rewrite (required by Laravel)
-RUN a2enmod rewrite
+FROM php:8.4-fpm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -35,15 +32,12 @@ RUN pecl install redis && docker-php-ext-enable redis
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# Copy php-fpm pool config (enables catch_workers_output for /dev/stdout)
+COPY docker/php/www.conf /usr/local/etc/php-fpm.d/www.conf
+
 # Copy entrypoint script
 COPY docker/php/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# Set Apache document root to Laravel public directory
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
-    && sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 
 # Set working directory
 WORKDIR /var/www/html
@@ -54,8 +48,7 @@ COPY . .
 # Set proper permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
-EXPOSE 80
+EXPOSE 9000
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["apache2-foreground"]
-
+CMD ["php-fpm"]
