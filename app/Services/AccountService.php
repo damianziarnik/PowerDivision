@@ -61,7 +61,7 @@ class AccountService
                 fn () => $this->persistTransaction($account, $amount, $balanceBefore, $balanceAfter, $type)
             );
 
-            return $this->buildResult($account, $transaction, $balanceBefore, $balanceAfter, $amount, $type);
+            return $this->buildResult($account, $transaction);
         });
     }
 
@@ -88,23 +88,16 @@ class AccountService
 
     /**
      * Build the response array from processed transaction data.
+     * Returns current balance, user ID and last transaction date in Zulu (UTC ISO-8601).
      */
     private function buildResult(
-        Account              $account,
+        Account                 $account,
         \App\Models\Transaction $transaction,
-        float                $balanceBefore,
-        float                $balanceAfter,
-        float                $amount,
-        string               $type
     ): array {
         return [
-            'transaction_id' => $transaction->id,
-            'account_id'     => $account->id,
-            'user_id'        => $account->user_id,
-            'type'           => $type,
-            'amount'         => $amount,
-            'balance_before' => $balanceBefore,
-            'balance_after'  => $balanceAfter,
+            'user_id'             => $account->user_id,
+            'balance'             => (float) $account->balance,
+            'last_transaction_at' => $transaction->created_at->utc()->toIso8601ZuluString(),
         ];
     }
 }
