@@ -53,8 +53,8 @@ return [
     'channels' => [
 
         'stack' => [
-            'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            'driver'            => 'stack',
+            'channels'          => explode(',', (string) env('LOG_STACK', 'stdout')),
             'ignore_exceptions' => false,
         ],
 
@@ -113,9 +113,18 @@ return [
         ],
 
         'errorlog' => [
-            'driver' => 'errorlog',
-            'level' => env('LOG_LEVEL', 'debug'),
+            'driver'              => 'errorlog',
+            'level'               => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
+        ],
+
+        'stdout' => [
+            'driver'       => 'monolog',
+            'level'        => env('LOG_LEVEL', 'debug'),
+            'handler'      => StreamHandler::class,
+            'handler_with' => [
+                'stream' => '/dev/stdout',
+            ],
         ],
 
         'null' => [
