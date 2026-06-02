@@ -1,58 +1,162 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# PowerDivision
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+REST API for managing user account balance, built with **Laravel 13**, **PostgreSQL**, **Redis** and **nginx + php-fpm** running in Docker.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Tech Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+| Layer | Technology |
+|---|---|
+| Framework | Laravel 13 / PHP 8.3 |
+| Web server | nginx |
+| PHP runtime | php-fpm |
+| Database | PostgreSQL 16 |
+| Cache / Locking | Redis 7 |
+| Containerization | Docker / Docker Compose |
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Requirements
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+- Docker Desktop
+- Docker Compose v2+
+- `curl` (for the test script)
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Getting Started
 
 ```bash
-composer require laravel/boost --dev
+# 1. Copy environment file
+cp .env.example .env
 
-php artisan boost:install
+# 2. Build and start containers
+docker-compose up -d --build
+
+# 3. Run migrations and seeder (creates test user with ID=1)
+docker-compose exec app php artisan migrate --seed
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Application available at: `http://localhost:8080`
 
-## Contributing
+---
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Endpoint
 
-## Code of Conduct
+### POST `/api/accounts/{userId}/transactions`
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Credits (positive amount) or debits (negative amount) a user account.
 
-## Security Vulnerabilities
+**URL Parameters**
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+| Param | Type | Description |
+|---|---|---|
+| `userId` | integer | User ID |
 
-## License
+**Request Body (JSON)**
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+| Field | Type | Description |
+|---|---|---|
+| `amount` | float | Transaction amount, e.g. `100` or `-30` (≠ 0, range ±999999.99) |
+
+**Example — top-up:**
+
+```bash
+curl -X POST http://localhost:8080/api/accounts/1/transactions \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 100}'
+```
+
+**Response 200:**
+
+```json
+{
+    "data": {
+        "user_id": 1,
+        "balance": 100.00,
+        "last_transaction_at": "2026-06-02T12:00:00Z"
+    }
+}
+```
+
+**Error codes:**
+
+| HTTP | Error key | Description |
+|---|---|---|
+| 422 | `insufficient_funds` | Balance would go negative |
+| 422 | `validation_error` | Invalid input data |
+| 404 | `account_not_found` | Account does not exist |
+| 503 | `lock_timeout` | Could not acquire account lock |
+
+---
+
+## Architecture
+
+```
+app/
+├── Http/
+│   ├── Controllers/AccountController.php   # HTTP handling, error mapping
+│   ├── Middleware/LoggingMiddleware.php     # Logs every response to /dev/stdout
+│   └── Requests/TransactionRequest.php     # Input validation
+├── Services/
+│   └── AccountService.php                  # Business logic, Redis lock, sleep(5)
+├── Repositories/
+│   ├── AccountRepository.php               # accounts table access
+│   └── TransactionRepository.php           # transactions table access
+├── Models/
+│   ├── Account.php
+│   └── Transaction.php
+└── Exceptions/
+    ├── AccountNotFoundException.php
+    └── InsufficientFundsException.php
+```
+
+**Protection against negative balance:**
+Every transaction acquires a **Redis distributed lock** (TTL 30s). Inside the lock, the balance is read, validated and updated within a PostgreSQL transaction. Concurrent requests queue up — they cannot read a stale balance.
+
+---
+
+## Logging
+
+Every response is logged to `/dev/stdout` in the format:
+
+```
+POST /api/accounts/1/transactions application/json 200 5037ms
+```
+
+Logs are available via:
+
+```bash
+docker-compose logs -f app
+```
+
+---
+
+## Test Script
+
+The script tops up the account by +100, then fires **10 parallel** charge requests of -30.
+Expected result: 3 succeed, 7 fail with `insufficient_funds`.
+
+```bash
+./scripts/test_transactions.sh
+# or with custom parameters:
+./scripts/test_transactions.sh [USER_ID] [BASE_URL]
+```
+
+Compatible with: macOS, Linux, Git Bash (Windows), WSL.
+
+---
+
+## Environment Variables (`.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `DB_CONNECTION` | `pgsql` | Database driver |
+| `DB_HOST` | `postgres` | PostgreSQL host (Docker service name) |
+| `DB_DATABASE` | `powerdivision` | Database name |
+| `REDIS_HOST` | `redis` | Redis host (Docker service name) |
+| `CACHE_STORE` | `redis` | Cache backend |
+| `QUEUE_CONNECTION` | `redis` | Queue backend |
+| `SESSION_DRIVER` | `redis` | Session backend |
+| `LOG_STACK` | `stdout` | Log channel |
